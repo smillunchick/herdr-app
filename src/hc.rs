@@ -270,6 +270,7 @@ pub struct Core {
     writer: mpsc::Sender<Vec<u8>>,
     routes: Arc<Mutex<Routes>>,
     next_id: AtomicU64,
+    #[cfg(not(target_os = "android"))]
     child: Mutex<Child>,
     /// Closes when the connection to the core drops.
     lost: async_channel::Receiver<()>,
@@ -320,57 +321,67 @@ fn connect_error(stderr: &str) -> Option<ConnectError> {
     }))
 }
 
+#[cfg(not(target_os = "android"))]
+fn desktop_transport() -> Result<(Value, mpsc::Sender<Vec<u8>>, BufReader<std::process::ChildStdout>, Child)> {
+    let mut child = crate::spawn::command(crate::core_bin::path())
+        .arg("connect")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("cannot run `hc connect`: is herdr-core installed?")?;
+    let mut stderr = child.stderr.take().unwrap();
+    let (error_tx, errors) = mpsc::channel();
+    std::thread::Builder::new().name("hc-stderr".into()).spawn(move || {
+        let mut captured = Vec::new();
+        let mut buffer = [0u8; 4096];
+        while let Ok(n) = stderr.read(&mut buffer) {
+            if n == 0 { break; }
+            let _ = std::io::stderr().write_all(&buffer[..n]);
+            captured.extend_from_slice(&buffer[..n.min(65536 - captured.len())]);
+        }
+        let _ = error_tx.send(String::from_utf8_lossy(&captured).into_owned());
+    })?;
+    let mut stdin = child.stdin.take().unwrap();
+    let mut reader = BufReader::new(child.stdout.take().unwrap());
+    let hello = (|| -> Result<Value> {
+        stdin.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"hello\",\"params\":{\"framed\":true}}\n")?;
+        let mut line = String::new();
+        reader.read_line(&mut line)?;
+        serde_json::from_str(&line).context("bad hello reply from core")
+    })();
+    let hello = match hello {
+        Ok(hello) => hello,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            if let Some(error) = connect_error(&errors.recv_timeout(Duration::from_secs(1)).unwrap_or_default()) { return Err(error.into()); }
+            return Err(error);
+        }
+    };
+    if let Some(err) = hello.get("error") {
+        bail!("core refused hello: {err}");
+    }
+
+    let (writer, frames) = mpsc::channel::<Vec<u8>>();
+    std::thread::Builder::new().name("hc-writer".into()).spawn(move || {
+        while let Ok(frame) = frames.recv() {
+            if stdin.write_all(&frame).is_err() {
+                break;
+            }
+        }
+    })?;
+
+    Ok((hello, writer, reader, child))
+}
+
 impl Core {
     /// Connects to the user's core (starting it if needed) and switches to framed mode.
     pub fn connect() -> Result<Arc<Core>> {
-        let mut child = crate::spawn::command(crate::core_bin::path())
-            .arg("connect")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("cannot run `hc connect`: is herdr-core installed?")?;
-        let mut stderr = child.stderr.take().unwrap();
-        let (error_tx, errors) = mpsc::channel();
-        std::thread::Builder::new().name("hc-stderr".into()).spawn(move || {
-            let mut captured = Vec::new();
-            let mut buffer = [0u8; 4096];
-            while let Ok(n) = stderr.read(&mut buffer) {
-                if n == 0 { break; }
-                let _ = std::io::stderr().write_all(&buffer[..n]);
-                captured.extend_from_slice(&buffer[..n.min(65536 - captured.len())]);
-            }
-            let _ = error_tx.send(String::from_utf8_lossy(&captured).into_owned());
-        })?;
-        let mut stdin = child.stdin.take().unwrap();
-        let mut reader = BufReader::new(child.stdout.take().unwrap());
-        let hello = (|| -> Result<Value> {
-            stdin.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"hello\",\"params\":{\"framed\":true}}\n")?;
-            let mut line = String::new();
-            reader.read_line(&mut line)?;
-            serde_json::from_str(&line).context("bad hello reply from core")
-        })();
-        let hello = match hello {
-            Ok(hello) => hello,
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                if let Some(error) = connect_error(&errors.recv_timeout(Duration::from_secs(1)).unwrap_or_default()) { return Err(error.into()); }
-                return Err(error);
-            }
-        };
-        if let Some(err) = hello.get("error") {
-            bail!("core refused hello: {err}");
-        }
-
-        let (writer, frames) = mpsc::channel::<Vec<u8>>();
-        std::thread::Builder::new().name("hc-writer".into()).spawn(move || {
-            while let Ok(frame) = frames.recv() {
-                if stdin.write_all(&frame).is_err() {
-                    break;
-                }
-            }
-        })?;
+        #[cfg(not(target_os = "android"))]
+        let (hello, writer, mut reader, child) = desktop_transport()?;
+        #[cfg(target_os = "android")]
+        let (hello, writer, mut reader) = crate::android::transport()?;
 
         let routes = Arc::new(Mutex::new(Routes::default()));
         let (lost_tx, lost) = async_channel::bounded::<()>(1);
@@ -379,6 +390,7 @@ impl Core {
             writer,
             routes: routes.clone(),
             next_id: AtomicU64::new(1),
+            #[cfg(not(target_os = "android"))]
             child: Mutex::new(child),
             lost,
         });
@@ -425,6 +437,8 @@ impl Core {
                 let _ = tx.send(Err(json!({"message": "lost the core"})));
             }
         })?;
+        #[cfg(target_os = "android")]
+        crate::android::connected(&core);
         Ok(core)
     }
 
@@ -552,6 +566,7 @@ impl Core {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 impl Drop for Core {
     fn drop(&mut self) {
         if let Ok(mut child) = self.child.lock() {

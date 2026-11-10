@@ -15,7 +15,7 @@ const SECTIONS = [
   { id: "privacy", title: "Privacy", icon: "shield" },
 ];
 
-const LOOKS = { main: "Herdr", terminals: "Terminals", win98: "Herdr 98" };
+const LOOKS = { main: "Herdr", terminals: "Terminals", win98: "Herdr 98", phone: "Phone" };
 const APPEARANCES = [
   [null, "System"],
   ["light", "Light"],
@@ -243,6 +243,9 @@ export default class Settings extends View {
         .child(row().h(10).gap(3).p(1).rounded(4).bg("#1d1f22").child(div().w(30).rounded(3).bg("#34373c").border_1().border_color("#4a4d53")).child(div().w(30)))
         .child(row().flex_1().gap(4).child(card()).child(card()));
     }
+    if (name === "phone")
+      return frame(col()).w(52).child(row().h(14).gap(3).p(3).border_b(1).border_color(t.border).child(div().w(8).rounded(2).bg(t.dim)).child(div().flex_1()).child(div().w(8).rounded(2).bg(t.dim)))
+        .child(row().h(9).gap(2).px(3).py(1).child(div().w(14).rounded(2).bg(t.raised))).child(row().flex_1().p(3).child(term()));
     // A layout of the person's own: a plain frame.
     return frame(col()).child(row().h(11).border_b(1).border_color(t.border)).child(row().flex_1().p(4).child(term()));
   }
@@ -821,14 +824,11 @@ export default class Settings extends View {
     const t = theme();
     const u = updates();
     const waiting = Boolean(u.app.ready || (u.core.ready && !u.core.managed));
-    const nav = v_flex()
-      .flex_none()
-      .w(190)
-      .p(10)
-      .gap(2)
-      .border_r(1)
+    // A phone-wide dialog has no room for a side list: the sections become a row on top.
+    const narrow = (this.width ?? 900) < 560;
+    const nav = (narrow ? h_flex().id("st-nav").size_full().px(8).gap(2).overflow_x_scrollbar() : v_flex().flex_none().w(190).p(10).gap(2).border_r(1))
       .border_color(t.border)
-      .child(div().px(10).pt(6).pb(12).text_size(16).font_semibold().text_color(t.foreground).child("Settings"))
+      .when(!narrow, (el) => el.child(div().px(10).pt(6).pb(12).text_size(16).font_semibold().text_color(t.foreground).child("Settings")))
       .children(
         SECTIONS.map((s) => {
           const on = s.id === this.section;
@@ -850,18 +850,20 @@ export default class Settings extends View {
               if (s.id === "machines") cx.spawn(async (cx) => { await this.loadMachines(); cx.notify(); });
               cx.notify();
             })
+            .flex_none()
             .child(svg(I(s.icon)).size(15).text_color(on ? t.accent : t.dim))
-            .child(div().flex_1().text_size(13.5).text_color(on ? t.foreground : t.muted).child(s.title))
+            .child(div().when(!narrow, (el) => el.flex_1()).text_size(13.5).text_color(on ? t.foreground : t.muted).child(s.title))
             .when(s.id === "updates" && waiting, (el) => el.child(div().w(7).h(7).rounded(4).bg(t.accent)));
         }),
       );
-    return h_flex()
+    return (narrow ? v_flex() : h_flex())
       .id("settings")
       .track_focus(this.handle)
+      .on_size_change((size, cx) => { if (size.width !== this.width) { this.width = size.width; cx.notify(); } })
       .w_full()
       .h(620)
       .min_h(0)
-      .items_start()
+      .when(!narrow, (el) => el.items_start())
       .on_key_down((e, cx) => {
         const k = e.key;
         if (this.machineEdit) {
@@ -880,7 +882,7 @@ export default class Settings extends View {
         cx.stop_propagation();
         cx.notify();
       })
-      .child(nav.h_full().child(div().flex_1()).child(this.button(t, "st-feedback", "Send feedback", () => { closeOverlay(props()?.overlay); run("app.feedback"); })))
+      .child(narrow ? div().flex_none().w_full().h(52).border_b(1).border_color(t.border).child(nav) : nav.h_full().child(div().flex_1()).child(this.button(t, "st-feedback", "Send feedback", () => { closeOverlay(props()?.overlay); run("app.feedback"); })))
       .child(
         // A bar that always shows: the pages are taller than the dialog and
         // people should see that they scroll.
@@ -888,7 +890,9 @@ export default class Settings extends View {
           .relative()
           .flex_1()
           .min_w(0)
-          .h_full()
+          .min_h(0)
+          .when(!narrow, (el) => el.h_full())
+          .when(narrow, (el) => el.w_full())
           .child(
             div()
               .id("st-body")
@@ -898,8 +902,8 @@ export default class Settings extends View {
               // content and a page that fits still shows a bar.
               .child(
                 div()
-                  .px(28)
-                  .py(22)
+                  .px(narrow ? 16 : 28)
+                  .py(narrow ? 14 : 22)
                   .child(
                     this.section === "look"
                       ? this.look(t, cx)

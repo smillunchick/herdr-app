@@ -4,16 +4,16 @@
 //! (Windows plays them itself).
 
 use std::path::{Path, PathBuf};
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 use std::process::Stdio;
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 use std::time::{Duration, Instant};
 
 const DONE: &[u8] = include_bytes!("../assets/sounds/done.mp3");
 const BLOCKED: &[u8] = include_bytes!("../assets/sounds/request.mp3");
 
 /// Players that decode MP3, tried in order (never bare `aplay`: it plays MP3 bytes as noise).
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 const PLAYERS: &[(&str, &[&str])] = &[
     #[cfg(target_os = "macos")]
     ("afplay", &[]),
@@ -23,7 +23,7 @@ const PLAYERS: &[(&str, &[&str])] = &[
     ("mpg123", &["-q"]),
     ("mpv", &["--no-video", "--really-quiet"]),
 ];
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 const PLAYER_LIMIT: Duration = Duration::from_secs(15);
 
 /// `done`, `blocked`, or a file (absolute, or relative to ~/.config/herdr-app). Off the UI thread.
@@ -92,7 +92,12 @@ fn play_file(path: &Path) -> Result<(), String> {
     played
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "android")]
+fn play_file(path: &Path) -> Result<(), String> {
+    crate::android::play_sound(path)
+}
+
+#[cfg(not(any(windows, target_os = "android")))]
 fn play_file(path: &Path) -> Result<(), String> {
     let mut errors = Vec::new();
     for (program, args) in PLAYERS {
@@ -104,7 +109,7 @@ fn play_file(path: &Path) -> Result<(), String> {
     Err(format!("no MP3 player worked ({})", errors.join("; ")))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 fn run(program: &str, args: &[&str], path: &Path) -> Result<(), String> {
     let mut child = crate::spawn::command(program)
         .args(args)

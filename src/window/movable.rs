@@ -97,6 +97,11 @@ impl AppWindow {
         let keep = px(KEEP_SHOWN);
         let x = at.x.min(viewport.width - keep).max(keep - size.width);
         let y = at.y.min(viewport.height - keep).max(px(0.0));
+        #[cfg(target_os = "android")]
+        let (x, y) = (
+            x.max(px(0.0)).min((viewport.width - size.width).max(px(0.0))),
+            y.max(px(0.0)).min((viewport.height - size.height).max(px(0.0))),
+        );
         let measure = {
             let (bounds, slot, known) = (self.bounds.clone(), o.slot.clone(), measured.is_some());
             canvas(

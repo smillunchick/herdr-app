@@ -1,0 +1,82 @@
+{
+  "id": "root",
+  "type": "column",
+  "titlebar": "none",
+  "background": "background",
+  "terminal_padding": [
+    6,
+    6
+  ],
+  "movable": false,
+  "children": [
+    {
+      "id": "phone-bar",
+      "type": "block",
+      "size": {
+        "px": 100
+      },
+      "content": {
+        "mod": "frame-phone"
+      }
+    },
+    {
+      "id": "screen",
+      "type": "stack",
+      "active": "main",
+      "children": [
+        {
+          "id": "main",
+          "type": "block",
+          "content": {
+            "tab": "active",
+            "pane": {
+              "gap": 2,
+              "background": "background",
+              "lone": false,
+              "border": {
+                "width": 1,
+                "color": "border"
+              },
+              "focus": {
+                "width": 1,
+                "color": "accent"
+              },
+              "header": {
+                "content": {
+                  "mod": "pane"
+                },
+                "height": 30,
+                "position": "top",
+                "reveal": "always"
+              }
+            }
+          }
+        },
+        {
+          "id": "files",
+          "type": "block",
+          "content": {
+            "mod": "files"
+          }
+        },
+        {
+          "id": "changes",
+          "type": "block",
+          "content": {
+            "mod": "changes"
+          }
+        },
+        {
+          "id": "progress",
+          "type": "block",
+          "content": {
+            "mod": "frame-phone",
+            "props": {
+              "progress": true
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

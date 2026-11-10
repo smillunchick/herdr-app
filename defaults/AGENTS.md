@@ -24,6 +24,46 @@ from the same parts you have.
 
 `herdr-app` controls this app; `hc` controls herdr-core.
 
+## Android development build
+
+The Android port uses the same native mod runtime, but it does not yet have
+full desktop feature parity. Do not treat a development APK as the finished app.
+
+- Android keeps settings, layouts and mods in its private app storage. Agents
+  on the core server cannot edit those files or use its control socket yet.
+- `settings.json` uses `core` for the HTTPS server address on Android. The app
+  asks for it on first start and again when it can't connect. On desktop, `core`
+  still names the core executable.
+- `exec` and `hc` run on the core server, not the phone. `readTextFile` reads app
+  files on Android and project files through the core, including named machines.
+- Android starts on its own layout, `phone` (only Android ships it): a top bar
+  (`frame-phone`) with the space, its tabs, Files, Changes, Progress and search,
+  over one `screen` stack (`main`, `files`, `changes`, `progress`). Progress shows
+  the `herdr-web.progress` label herdr-web's server writes on an agent's
+  terminal. Its menu button opens spaces and agents as a drawer: an overlay
+  opened `at: "left"` on Android slides in from the left edge, follows a finger
+  that drags it, and settles open or shut by distance or fling. A row of Esc,
+  Tab, Ctrl, ^C, arrows, Copy and Paste shows above the phone keyboard. Ctrl
+  holds for the next letter.
+- `app.haptic` gives the phone's short tap vibration; Android controls run it on
+  tap (nothing on desktop).
+- Android's Back runs `app.back`: it closes the top dialog, popup or window, then
+  shows `main` again, then leaves the app. On desktop it closes the top dialog.
+- Copy and paste use the Android clipboard, so text moves to and from other apps.
+  A finger drag scrolls a terminal, so `terminal.copy` without a selection opens
+  the terminal's text (its screen and history) with a Copy all button; the pane
+  menu's Select text does the same.
+- Tapping a web address in a terminal opens it in the phone's browser (no Ctrl
+  to hold); a program that takes the mouse gets the tap instead. File paths
+  don't open: the file is on the core server, not the phone.
+- There is no hover. `window().platform` is `"android"`: show controls instead of
+  revealing them on hover. The shipped pane header shows a ⋯ button that opens
+  the pane menu.
+- When an agent needs you or finishes, Android plays the sound and posts a
+  system notification, which shows while Herdr is in the background too.
+- The shell commands below describe desktop access. Android testing uses the
+  isolated emulator and scratch core in `android/`, not the person's live core.
+
 ## What you can and can't do
 
 You can: rearrange and restyle the whole window (layouts), rebind any key,
@@ -623,7 +663,7 @@ The main ones:
 - App: `mod.clone {name, as?}` (duplicate; default `<name>-copy`), `mod.open {name}` (again: closes it), `overlay.close {id?}`, `app.help` (again: closes it), `app.palette` (again: closes it), `app.settings {section?}`
   (sections: `look`, `machines`, `alerts`, `updates`, `privacy`; Machines lists, updates, renames and removes ssh machines; settings edit the same files you do).
   `app.check_updates` (only a successful check reports Up to date; a failed check clears the checked time and can be retried), `app.update_core` (a newer herdr-core of this generation, terminals kept;
-  never one a package manager owns), `app.welcome`, `app.whats_new`, `app.feedback {message?, from?}` (from `"person"` or `"agent"`; opens a review window, where the person can paste up to 3 screenshots; never sends until the person clicks Send), `app.reset`,
+  never one a package manager owns), `app.back` (Android's Back), `app.welcome`, `app.whats_new`, `app.feedback {message?, from?}` (from `"person"` or `"agent"`; opens a review window, where the person can paste up to 3 screenshots; never sends until the person clicks Send), `app.reset`,
   `app.theme {name}`, `app.zoom_in`, `app.zoom_out`, `app.zoom_reset`,
   `app.update` (restart into a downloaded update).
   Add machine lists all named ssh-config hosts in a scrollable list. Machines

@@ -68,11 +68,15 @@ impl AppWindow {
             "macos"
         } else if cfg!(windows) {
             "windows"
+        } else if cfg!(target_os = "android") {
+            "android"
         } else {
             "linux"
         };
         // Window buttons are the layout's to draw only where the system draws none.
-        let buttons = if cfg!(windows) {
+        let buttons = if cfg!(target_os = "android") {
+            false
+        } else if cfg!(windows) {
             self.titlebar() == Titlebar::Layout
         } else {
             !cfg!(target_os = "macos") && matches!(window.window_decorations(), Decorations::Client { .. })

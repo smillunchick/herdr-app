@@ -144,12 +144,24 @@ fn file_url_path(link: &str) -> Option<PathBuf> {
 }
 
 /// Hands the target to the system's default handler.
+#[cfg(not(target_os = "android"))]
 pub fn open(target: &Target) {
     let arg = match target {
         Target::Url(u) => std::ffi::OsStr::new(u),
         Target::File(p) => p.as_os_str(),
     };
     open_system(arg);
+}
+
+/// Android: the phone's browser opens web addresses. A file path names a file
+/// on the computer the terminal runs on, which the phone can't open.
+#[cfg(target_os = "android")]
+pub fn open(target: &Target) {
+    if let Target::Url(url) = target
+        && let Err(error) = gpui_mobile::android::jni::open_url(url)
+    {
+        tracing::warn!("cannot open {url}: {error}");
+    }
 }
 
 #[cfg(windows)]
@@ -182,7 +194,7 @@ fn open_system(arg: &std::ffi::OsStr) {
     });
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 fn open_system(arg: &std::ffi::OsStr) {
     let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
     let spawned = std::process::Command::new(opener)

@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/ghostty-sys"]
-exclude = ["vendor/gpui-kit", "vendor/gpui-pre", "vendor/gpui-pre-wgpu", "vendor/gpui-pre-apple", "vendor/gpui-pre-linux", "vendor/gpui-pre-macos", "vendor/gpui-pre-windows", "vendor/taffy", "vendor/quickjs-jit-runtime", "vendor/zed-xim", "vendor/xim-ctext"]
+members = ["crates/ghostty-sys", "android"]
+exclude = ["vendor/gpui-kit", "vendor/gpui-pre", "vendor/gpui-pre-wgpu", "vendor/gpui-pre-apple", "vendor/gpui-pre-linux", "vendor/gpui-pre-macos", "vendor/gpui-pre-windows", "vendor/taffy", "vendor/quickjs-jit-runtime", "vendor/zed-xim", "vendor/xim-ctext", "vendor/gpui-pre-platform"]
 resolver = "2"
 
 [workspace.package]
@@ -52,6 +52,16 @@ skrifa = "=0.44.0"
 swash = "=0.2.10"
 tiny-skia = { version = "=0.11.4", default-features = false, features = ["std", "simd"] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", features = ["native-activity"] }
+android_logger = "0.15"
+gpui-mobile = { git = "https://github.com/smillunchick/gpui-mobile", rev = "85d9bd2", default-features = false }
+quickjs-jit = { git = "https://github.com/longbridge/quickjs-jit", rev = "96593cd7a54440ac060a391b8baea7e9a3cf1393", default-features = false, features = ["bindgen"] }
+log = "0.4"
+jni = "0.22"
+libc = "0.2"
+tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 gpui_linux = { package = "gpui-pre-linux", version = "=0.3.8", features = ["render-to-image"] }
 
@@ -72,6 +82,7 @@ winresource = "0.1"
 [patch.crates-io]
 # HERDR: production frame capture without test-support dependencies.
 gpui-pre = { path = "vendor/gpui-pre" }
+gpui-pre-platform = { path = "vendor/gpui-pre-platform" }
 gpui-pre-wgpu = { path = "vendor/gpui-pre-wgpu" }
 gpui-pre-apple = { path = "vendor/gpui-pre-apple" }
 rquickjs = { path = "vendor/gpui-kit/crates/shell/rquickjs-compat" }

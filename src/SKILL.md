@@ -6,6 +6,22 @@ what the person sees. For starting, reading, messaging, waiting on or cleaning
 up agents and programs, read `hc --skill` and use hc.
 Your terminal address is `$HC_TERMINAL_ID`; it is not a pane ID.
 
+## Android development build
+
+Android runs the native interface, but the port does not yet have full desktop
+feature parity. Its app files and control socket remain in private Android
+storage. An agent on the core server cannot yet use the desktop commands below
+to inspect or change that Android window. Do not edit the server's desktop app
+files as a substitute.
+
+Android's `settings.json` uses `core` for an HTTPS server address, not an
+executable path. The app asks the person for it when it can't connect.
+Terminals and project files stay on that server. Mod `exec` and `hc` calls
+run there; app settings and mod source stay on the phone.
+
+Android shows the `phone` layout: one screen at a time (terminals, Files or
+Changes), with spaces and agents in a drawer. Its Back key runs `app.back`.
+
 ## Inspect before acting
 
 ```sh

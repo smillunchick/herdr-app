@@ -2079,7 +2079,8 @@ impl Render for TerminalView {
             }))
             .on_mouse_down(MouseButton::Left, cx.listener(|this, ev: &MouseDownEvent, window, cx| {
                 this.focus.focus(window, cx);
-                if link_mods(&ev.modifiers)
+                // A phone has no Ctrl to hold: a tap on a link opens it.
+                if (link_mods(&ev.modifiers) || (cfg!(target_os = "android") && !this.takes_mouse(ev.modifiers)))
                     && let Some((target, _)) = this.link_at(ev.position)
                 {
                     match target {

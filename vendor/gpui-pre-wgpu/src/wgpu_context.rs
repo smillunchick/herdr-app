@@ -470,8 +470,14 @@ impl WgpuContext {
 
     #[cfg(not(target_family = "wasm"))]
     pub fn instance(display: Option<Box<dyn wgpu::wgt::WgpuHasDisplayHandle>>) -> wgpu::Instance {
+        // Android allows one graphics connection per window. Creating both
+        // backends connects the window twice, before adapter selection.
+        #[cfg(target_os = "android")]
+        let backends = wgpu::Backends::GL;
+        #[cfg(not(target_os = "android"))]
+        let backends = wgpu::Backends::VULKAN | wgpu::Backends::GL;
         wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
+            backends,
             flags: wgpu::InstanceFlags::default(),
             backend_options: wgpu::BackendOptions::default(),
             memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
@@ -724,7 +730,8 @@ impl WgpuContext {
     }
 
     pub fn uses_webgl_instance_data(&self) -> bool {
-        matches!(self.backend, WgpuBackend::Gl) && cfg!(target_family = "wasm")
+        matches!(self.backend, WgpuBackend::Gl | WgpuBackend::Native(wgpu::Backend::Gl))
+            && cfg!(any(target_family = "wasm", target_os = "android"))
     }
 
     pub fn supports_dual_source_blending(&self) -> bool {

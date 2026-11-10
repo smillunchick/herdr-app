@@ -30,8 +30,10 @@ pub fn frame_dir() -> PathBuf {
 }
 
 pub fn home() -> PathBuf {
-    // HOME, or the profile folder on Windows.
-    std::env::home_dir().unwrap_or_else(|| "/".into())
+    #[cfg(target_os = "android")]
+    { crate::android::home() }
+    #[cfg(not(target_os = "android"))]
+    { std::env::home_dir().unwrap_or_else(|| "/".into()) }
 }
 
 /// The fonts on this machine (`fonts()`): read when the window opens and
@@ -49,8 +51,13 @@ pub fn note_fonts(cx: &gpui::App) {
 /// The app's home: `$HERDR_APP_HOME` (tests, experiments), else
 /// `$XDG_CONFIG_HOME/herdr-app`, else `~/.config/herdr-app`, on every OS.
 pub fn app_dir() -> PathBuf {
-    let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
-    env("HERDR_APP_HOME").unwrap_or_else(|| env("XDG_CONFIG_HOME").unwrap_or_else(|| home().join(".config")).join("herdr-app"))
+    #[cfg(target_os = "android")]
+    { crate::android::app_dir() }
+    #[cfg(not(target_os = "android"))]
+    {
+        let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+        env("HERDR_APP_HOME").unwrap_or_else(|| env("XDG_CONFIG_HOME").unwrap_or_else(|| home().join(".config")).join("herdr-app"))
+    }
 }
 
 pub fn mods_dir() -> PathBuf {
@@ -764,6 +771,12 @@ fn exec_limit(options: Option<&HostValue>) -> Result<Duration, HostError> {
     }
 }
 
+#[cfg(target_os = "android")]
+fn run_blocking(command: &str, args: &[String], cwd: Option<String>, limit: Duration) -> Result<(i32, String, String), String> {
+    crate::android::exec(command, args, cwd, limit)
+}
+
+#[cfg(not(target_os = "android"))]
 fn run_blocking(command: &str, args: &[String], cwd: Option<String>, limit: Duration) -> Result<(i32, String, String), String> {
     use std::io::Read;
     let mut child = crate::spawn::command(command)
@@ -919,9 +932,14 @@ fn module(inst: Instance, copy: u64) -> HostModule {
         .async_function("readTextFile", |a| {
             let path = a.string(0)?.to_owned();
             let on = opt_str(a.get(1), "on");
-            Ok(crate::mod_files::read_with(move || match on {
-                Some(m) => read_remote(&m, &path),
-                None => crate::mod_files::read(Path::new(&path)),
+            Ok(crate::mod_files::read_with(move || {
+                #[cfg(target_os = "android")]
+                { crate::android::read_text_file(&path, on.as_deref()) }
+                #[cfg(not(target_os = "android"))]
+                { match on {
+                    Some(m) => read_remote(&m, &path),
+                    None => crate::mod_files::read(Path::new(&path)),
+                } }
             }))
         })
         .async_function("writeTextFile", |a| {

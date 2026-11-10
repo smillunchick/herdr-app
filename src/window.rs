@@ -5,6 +5,8 @@
 //! anything: keys, mods, menus and agents all run them.
 
 use crate::hc::Core;
+#[cfg(target_os = "android")]
+mod drawer;
 mod floats;
 mod movable;
 mod pane_drag;
@@ -138,7 +140,12 @@ const LAYOUTS: &[(&str, &str)] = &[
     ("main", include_str!("../defaults/layouts/main.json")),
     ("terminals", include_str!("../defaults/layouts/terminals.json")),
     ("win98", include_str!("../defaults/layouts/win98.json")),
+    #[cfg(target_os = "android")]
+    ("phone", include_str!("../defaults/android/phone.json")),
 ];
+
+/// The layout a first start (or the escape hatch) shows.
+const HOME_LAYOUT: &str = if cfg!(target_os = "android") { "phone" } else { "main" };
 
 /// Pictures shipped layouts name as their `preview`, written beside them.
 const LAYOUT_PREVIEWS: &[(&str, &str)] = &[("win98.svg", include_str!("../defaults/layouts/win98.svg"))];
@@ -329,6 +336,9 @@ struct Overlay {
     /// The app's own screen (a `frame-` mod: What's new, the welcome): only
     /// its own close ends it, never a layout switch.
     frame: bool,
+    /// Android `at: "left"`: a drawer at the left edge, and how it moves.
+    #[cfg(target_os = "android")]
+    drawer: Option<drawer::Motion>,
 }
 
 struct Drag {
@@ -576,7 +586,7 @@ impl AppWindow {
         // A layout whose mods are gone (Zen, T4, ADE after the update took
         // theirs) starts on Herdr's instead of a wall of "did not load".
         let gone = name.as_deref().map(missing_mods).unwrap_or_default();
-        w.load_layout(if gone.is_empty() { name.as_deref().unwrap_or("main") } else { "main" });
+        w.load_layout(if gone.is_empty() { name.as_deref().unwrap_or(HOME_LAYOUT) } else { HOME_LAYOUT });
         w.apply_look(window, cx);
         w.show_layout_notes(window, cx);
         if let (Some(n), false) = (&name, gone.is_empty()) {
@@ -859,6 +869,8 @@ impl AppWindow {
             self.report_layout(&problems.join("; "));
         }
         if settings::set(s) {
+            #[cfg(target_os = "android")]
+            crate::android::system_bars();
             for term in self.terms.values() {
                 term.view.read(cx).refresh_theme();
             }
@@ -2116,6 +2128,8 @@ impl AppWindow {
             model::Alert::Blocked => (format!("{name} needs you"), "error"),
             model::Alert::Done => (format!("{name} finished"), "info"),
         };
+        #[cfg(target_os = "android")]
+        crate::android::notify(&title, place.as_deref().unwrap_or_default());
         let notification = json!({
             "title": title, "body": place, "level": level,
             "action": { "name": "agent.focus", "args": { "terminal": addr } },
@@ -3176,6 +3190,17 @@ impl AppWindow {
                 return;
             }
             "terminal.copy" | "terminal.paste" | "terminal.paste_image" => {
+                // A finger drag scrolls, so a phone rarely has a selection:
+                // copy opens the terminal's text, where a long press selects.
+                #[cfg(target_os = "android")]
+                if name == "terminal.copy"
+                    && let Some(t) = self.focused_terminal(window, cx)
+                    && !t.view.update(cx, |v, cx| v.copy(cx))
+                {
+                    let spec = json!({ "mod": "frame-phone", "kind": "dialog", "width": 1, "height": 1, "props": { "text": t.address } });
+                    self.open_overlay(mods::new_overlay_id(), spec, window, cx);
+                    return;
+                }
                 if let Some(t) = self.focused_terminal(window, cx) {
                     t.view.update(cx, |v, cx| match name {
                         "terminal.paste" => v.paste(cx),
@@ -3334,6 +3359,26 @@ impl AppWindow {
                 let id = Self::owned(a, "id").or_else(|| self.overlays.iter().rev().find(|o| o.kind.modal_keys()).map(|o| o.id.clone()));
                 if let Some(id) = id {
                     self.close_overlay(&id, window, cx);
+                }
+                return;
+            }
+            // Android's Back: closes what's on top, then goes back to the
+            // terminals; with nothing left, Android leaves the app.
+            "app.haptic" => {
+                #[cfg(target_os = "android")]
+                crate::android::haptic();
+                return;
+            }
+            #[cfg(not(target_os = "android"))]
+            "app.back" => return self.run("overlay.close", json!({}), window, cx),
+            #[cfg(target_os = "android")]
+            "app.back" => {
+                if let Some(id) = self.overlays.iter().rev().find(|o| o.kind != OverlayKind::Toast).map(|o| o.id.clone()) {
+                    self.close_overlay(&id, window, cx);
+                } else if self.chrome.find("screen").and_then(Node::active_child).is_some_and(|n| n.id != "main") {
+                    self.run("layout.select", json!({ "stack": "screen", "child": "main" }), window, cx);
+                } else {
+                    crate::android::leave();
                 }
                 return;
             }
@@ -3633,6 +3678,8 @@ impl AppWindow {
             fit,
             modal: spec.get("modal").and_then(Value::as_bool).unwrap_or(false),
             bare: spec.get("frame").and_then(Value::as_str) == Some("none"),
+            #[cfg(target_os = "android")]
+            drawer: (spec.get("at").and_then(Value::as_str) == Some("left")).then(drawer::Motion::opening),
             place,
             key: key.clone(),
             frame: spec.get("mod").and_then(Value::as_str).is_some_and(|m| m.starts_with("frame-")),
@@ -3681,6 +3728,13 @@ impl AppWindow {
 
     /// Closes an overlay; a kept window stays closed on the next start too.
     fn close_overlay(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        // A drawer closes the way it opened: back out to its edge, then goes.
+        #[cfg(target_os = "android")]
+        if let Some(o) = self.overlays.iter().find(|o| o.id == id)
+            && o.drawer.is_some_and(|m| !m.closed())
+        {
+            return self.settle_drawer(id, 0.0, window, cx);
+        }
         if let Some(k) = self.overlays.iter().find(|o| o.id == id).and_then(|o| o.key.clone()) {
             movable::forget(&self.layout_name, &k);
         }
@@ -3724,7 +3778,7 @@ impl AppWindow {
         self.watched.keys = None;
         install_layouts();
         self.drop_layout_copies(window, cx);
-        self.load_layout("main");
+        self.load_layout(HOME_LAYOUT);
         self.apply_look(window, cx);
         self.focused_pane = None;
         self.agent_focused = None;
@@ -4318,7 +4372,7 @@ impl AppWindow {
         }
     }
 
-    fn render_overlays(&self, viewport: Size<Pixels>, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn render_overlays(&self, viewport: Size<Pixels>, _window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let mut out = Vec::new();
         let mut toast_y = 16.0;
         // Drawn last, so it stays clickable over an open dialog.
@@ -4334,6 +4388,9 @@ impl AppWindow {
             // Up to 1: a share of the window (terminals in overlays want room, not px).
             let span = |v: f32, full: Pixels| if v <= 1.0 { full * v } else { settings::z(v) };
             let (w, h) = (span(o.size.width, viewport.width), span(o.size.height, viewport.height));
+            // Android has one fixed screen; desktop-sized dialogs must fit it.
+            #[cfg(target_os = "android")]
+            let (w, h) = (w.min(viewport.width), h.min(viewport.height));
             let sized = |v: f32| v > 0.0 || o.kind != OverlayKind::Window;
             let content = match &o.layout {
                 Some(l) => self.render_node(l, &HashSet::new(), None, cx),
@@ -4353,6 +4410,11 @@ impl AppWindow {
                 .occlude()
                 .when(o.kind != OverlayKind::Window, |d| d.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()))
                 .child(content);
+            #[cfg(target_os = "android")]
+            if let Some(motion) = o.drawer {
+                out.push(self.render_drawer(o, motion, body, w, _window, cx));
+                continue;
+            }
             match o.kind {
                 OverlayKind::Window => out.push(self.render_window(o, body, viewport, cx)),
                 OverlayKind::Dialog => out.push(
@@ -4903,7 +4965,7 @@ impl Render for AppWindow {
         let focused = self.focused_path(window, cx);
         let tree = self.render_node(&self.chrome, &focused, None, cx);
         let tree = self.window_frame(tree, window, cx);
-        let overlays = self.render_overlays(window.viewport_size(), cx);
+        let overlays = self.render_overlays(window.viewport_size(), window, cx);
         let tracker = self.float_tracker(cx);
         let win_tracker = self.window_tracker(cx);
         let pane_drag = self.pane_drag_layer(cx);
@@ -6208,6 +6270,14 @@ export default class SystemToast extends View {
         let terminals = super::default_layout("terminals");
         assert!(terminals.find("tabs").is_some());
         assert!(matches!(terminals.find("main").and_then(|n| n.content()), Some(super::Content::Context { .. })));
+        // Android's layout ships only there; app.back relies on its "screen" stack.
+        let phone: super::Node = serde_json::from_str(include_str!("../defaults/android/phone.json")).unwrap();
+        let screen = phone.find("screen").expect("phone layout has a screen stack");
+        assert_eq!(screen.active_child().map(|n| n.id.as_str()), Some("main"));
+        assert!(matches!(phone.find("main").and_then(|n| n.content()), Some(super::Content::Context { .. })));
+        for id in ["files", "changes"] {
+            assert!(phone.find(id).is_some(), "phone layout has {id}");
+        }
     }
 
     #[test]

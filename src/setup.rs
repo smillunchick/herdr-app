@@ -27,14 +27,21 @@ const CORE_INSTALL: &str = "powershell -c \"irm https://releases.herdr.dev/core/
 const CORE_PLACE: &str = if cfg!(windows) { r"%LOCALAPPDATA%\Programs\herdr-core" } else { "~/.local/bin" };
 
 /// What's missing before the main window can open.
+#[cfg_attr(target_os = "android", allow(dead_code))]
 pub enum Need {
     Install,
     Connect(String),
+    /// Android: the server address to use, with why the last one failed.
+    #[cfg(target_os = "android")]
+    Server(String),
     Fix(Mismatch),
 }
 
 impl Need {
     pub fn connection(error: anyhow::Error) -> Self {
+        #[cfg(target_os = "android")]
+        return Self::Server(error.to_string());
+        #[cfg(not(target_os = "android"))]
         match error.downcast_ref::<crate::hc::ConnectError>() {
             Some(error) => Self::Connect(error.to_string()),
             None => Self::Install,
@@ -71,6 +78,8 @@ pub struct Setup {
     state: State,
     requests: Option<async_channel::Receiver<Request>>,
     icon: Arc<Image>,
+    #[cfg(target_os = "android")]
+    address: Option<Entity<gpui_base::input::InputState>>,
 }
 
 pub fn open(need: Need, requests: async_channel::Receiver<Request>, cx: &mut App) {
@@ -81,7 +90,14 @@ pub fn open(need: Need, requests: async_channel::Receiver<Request>, cx: &mut App
         ..Default::default()
     };
     let icon = Arc::new(Image::from_bytes(ImageFormat::Png, ICON.to_vec()));
-    cx.open_window(options, |_, cx| cx.new(|_| Setup { need, state: State::Ready, requests: Some(requests), icon }))
+    cx.open_window(options, |_, cx| cx.new(|_| Setup {
+        need,
+        state: State::Ready,
+        requests: Some(requests),
+        icon,
+        #[cfg(target_os = "android")]
+        address: None,
+    }))
         .expect("cannot open the Herdr window");
     cx.activate(true);
 }
@@ -163,6 +179,20 @@ impl Setup {
         .detach();
     }
 
+    /// Android: saves the typed server address as `core`, then connects to it.
+    #[cfg(target_os = "android")]
+    fn connect_to(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(address) = &self.address else { return };
+        let address = address.read(cx).value().trim().to_owned();
+        let mut person = settings::load_person().unwrap_or_default();
+        person.core = Some(address);
+        if let Err(e) = settings::write_person(&person) {
+            self.state = State::Failed(format!("Cannot save the address: {e}"));
+            return cx.notify();
+        }
+        self.start(window, cx);
+    }
+
     /// Title, what's going on, and the line under the buttons.
     fn words(&self) -> (String, String, String) {
         match &self.need {
@@ -175,6 +205,12 @@ impl Setup {
                 "Herdr can't connect to herdr-core".into(),
                 error.clone(),
                 "Once you've resolved this, try again.".into(),
+            ),
+            #[cfg(target_os = "android")]
+            Need::Server(error) => (
+                "Connect to your Herdr server".into(),
+                error.clone(),
+                "Your terminals run on that computer. Turn on Tailscale first if you use it.".into(),
             ),
             Need::Fix(Mismatch::TooOld { have, need }) => (
                 "Herdr needs a newer herdr-core".into(),
@@ -222,6 +258,19 @@ impl Render for Setup {
                 .child(button("install", "Install it for me", true).when(!busy, |d| d.on_click(cx.listener(|this, _, w, cx| this.install(w, cx)))))
                 .child(button("choose", "I have it somewhere…", false).when(!busy, |d| d.on_click(cx.listener(|this, _, w, cx| this.choose(w, cx))))),
             Need::Connect(_) => div().child(button("retry", "Retry", true).on_click(cx.listener(|this, _, w, cx| this.start(w, cx)))),
+            #[cfg(target_os = "android")]
+            Need::Server(_) => {
+                let address = self.address.get_or_insert_with(|| {
+                    let saved = settings::load_person().ok().and_then(|p| p.core).unwrap_or_default();
+                    cx.new(|cx| gpui_base::input::InputState::new(_window, cx).placeholder("https://my-computer.example.ts.net:8492").default_value(saved))
+                });
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(10.0))
+                    .child(div().h(px(38.0)).child(gpui_base::input::Input::new(address)))
+                    .child(div().flex().child(button("connect", "Connect", true).on_click(cx.listener(|this, _, w, cx| this.connect_to(w, cx)))))
+            }
             Need::Fix(Mismatch::Newer { .. }) => div()
                 .flex()
                 .gap(px(10.0))
@@ -236,12 +285,14 @@ impl Render for Setup {
             .flex()
             .items_center()
             .justify_center()
+            .px(px(20.0))
             .bg(c("background"))
             .text_color(c("foreground"))
             .font_family(settings::get().ui_font_family.clone())
             .child(
                 div()
-                    .w(px(520.0))
+                    .w_full()
+                    .max_w(px(520.0))
                     .flex()
                     .flex_col()
                     .gap(px(18.0))

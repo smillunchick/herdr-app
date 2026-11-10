@@ -84,6 +84,8 @@ pub const COMMANDS: &[Command] = &[
     cmd("overlay.close", &[opt("id")], "Close an overlay (default: the top dialog or popup)."),
     // The app.
     cmd("app.help", &[], "Toggle the keys dialog."),
+    cmd("app.haptic", &[], "A short tap of the phone's vibration, as Android's own controls give (Android; nothing elsewhere)."),
+    cmd("app.back", &[], "Android's Back: close the top dialog or menu, else go back to the terminals, else leave the app."),
     cmd("app.welcome", &[], "Show the welcome again."),
     cmd("app.whats_new", &[], "Show what this release brought (it opens once by itself after an update)."),
     cmd("app.feedback", &[opt("message"), opt("from")], "Draft feedback for the person to review and send (from: person or agent)."),

@@ -250,7 +250,8 @@ export function commands(): { name: string; args: { name: string; required: bool
  *  the system draws no window buttons, so draw them (`window.minimize`, `window.maximize`,
  *  `window.close`); on macOS the traffic lights always stay. Live. */
 export function window(): {
-  platform: "linux" | "macos" | "windows";
+  /** "android": a touch screen; there is no hover, so show controls instead of revealing them. */
+  platform: "linux" | "macos" | "windows" | "android";
   titlebar: "system" | "none";
   buttons: boolean;
   maximized: boolean;
